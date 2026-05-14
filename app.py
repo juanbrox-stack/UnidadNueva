@@ -6,6 +6,23 @@ import zipfile
 
 def procesar_logica_pedidos(df):
     pedidos_procesados = []
+    
+    # Diccionario robusto con 12 países y soporte para nombres completos (Alias)
+    mapeo_paises = {
+        "FR": { "ext": ".fr", "code": "FR", "alias": ["FRANCE", "FRANCIA"] },
+        "IT": { "ext": ".it", "code": "IT", "alias": ["ITALY", "ITALIA"] },
+        "PT": { "ext": ".pt", "code": "PT", "alias": ["PORTUGAL"] },
+        "DE": { "ext": ".de", "code": "DE", "alias": ["GERMANY", "ALEMANIA"] },
+        "PL": { "ext": ".pl", "code": "PL", "alias": ["POLAND", "POLONIA"] },
+        "SE": { "ext": ".se", "code": "SE", "alias": ["SWEDEN", "SUECIA"] },
+        "CZ": { "ext": ".cz", "code": "CZ", "alias": ["CZECH", "CHECO", "REPUBLICA CHECA"] },
+        "NL": { "ext": ".nl", "code": "NL", "alias": ["NETHERLANDS", "HOLANDA", "PAISES BAJOS"] },
+        "BE": { "ext": ".be", "code": "BE", "alias": ["BELGIUM", "BELGICA"] },
+        "AT": { "ext": ".at", "code": "AT", "alias": ["AUSTRIA"] },
+        "IE": { "ext": ".ie", "code": "IE", "alias": ["IRELAND", "IRLANDA"] },
+        "ES": { "ext": ".es", "code": "ES", "alias": ["SPAIN", "ESPAÑA"] }
+    }
+
     for index, row in df.iterrows():
         # --- LÓGICA SKU ---
         sku = str(row['REFERENCIA']).strip()
@@ -18,15 +35,27 @@ def procesar_logica_pedidos(df):
         partes_notas = [n.strip() for n in notas_raw.split(';') if n.strip()]
 
         if len(partes_notas) >= 2:
+            # El país suele estar en la última parte de la nota
             dato_pais = partes_notas[-1].upper()
-            if "FR" in dato_pais:
-                extension_email, pais_code = ".fr", "FR"
-            elif "IT" in dato_pais:
-                extension_email, pais_code = ".it", "IT"
-            elif "PT" in dato_pais:
-                extension_email, pais_code = ".pt", "PT"
-            else:
-                extension_email, pais_code = ".es", "ES"
+            
+            # Valores por defecto (España)
+            extension_email = ".es"
+            pais_code = "ES"
+            encontrado = False
+
+            # Búsqueda inteligente en el mapeo
+            for sigla, info in mapeo_paises.items():
+                # Si coincide con la sigla o con alguno de los nombres (alias)
+                if sigla == dato_pais or any(alias in dato_pais for alias in info.get("alias", [])):
+                    extension_email = info["ext"]
+                    pais_code = info["code"]
+                    encontrado = True
+                    break
+            
+            # Si no está en nuestra lista pero es un código de 2 letras (ej. DK, FI...)
+            if not encontrado and len(dato_pais) == 2:
+                pais_code = dato_pais
+                extension_email = f".{dato_pais.lower()}"
 
             mkt = str(row['MARKETPLACE'])
             mkt_limpio = re.sub(r'[^a-zA-Z0-9]', '', mkt).lower()
@@ -51,8 +80,9 @@ def procesar_logica_pedidos(df):
     return pd.DataFrame(pedidos_procesados)
 
 # --- INTERFAZ STREAMLIT ---
+st.set_page_config(page_title="Procesador de Pedidos", page_icon="📦")
 st.title("📦 Procesador de Pedidos Marketplace")
-st.write("Sube tu archivo 'UnidadNueva' y descarga los pedidos unificados.")
+st.write("Sube tu archivo Excel y el sistema detectará automáticamente los países (incluyendo nombres como 'Germany' o 'Poland').")
 
 archivo_subido = st.file_uploader("Elige un archivo Excel", type=["xlsx", "xls"])
 
@@ -62,15 +92,18 @@ if archivo_subido is not None:
         df_resultado = procesar_logica_pedidos(df_origen)
 
         if not df_resultado.empty:
-            st.success(f"Se han procesado {len(df_resultado)} filas correctamente.")
+            st.success(f"✅ Se han procesado {len(df_resultado)} filas correctamente.")
             
-            # Crear un archivo ZIP en memoria para la descarga
+            # Mostrar vista previa de los códigos de país detectados para verificar
+            with st.expander("Ver desglose por país detectado"):
+                st.write(df_resultado['country_code'].value_counts())
+
+            # Crear archivo ZIP en memoria
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "x", zipfile.ZIP_DEFLATED) as zf:
                 for mkt_name, grupo in df_resultado.groupby("MARKETPLACE"):
                     nombre_archivo = f"{re.sub(r'[^a-zA-Z0-9]', '_', str(mkt_name))}.xlsx"
                     
-                    # Guardar cada grupo en un Excel dentro del ZIP
                     output_excel = io.BytesIO()
                     columnas = ["article", "quantity", "customer_name", "nif", "attention_of", 
                                 "address", "postal_code", "phone", "city", "country_code", 
@@ -85,6 +118,6 @@ if archivo_subido is not None:
                 mime="application/zip"
             )
         else:
-            st.warning("No se encontraron datos válidos para procesar.")
+            st.warning("No se encontraron datos válidos. Revisa el formato de la columna 'notas'.")
     except Exception as e:
         st.error(f"Error al procesar el archivo: {e}")
