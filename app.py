@@ -81,7 +81,7 @@ def procesar_logica_pedidos(df):
 
 # --- INTERFAZ STREAMLIT ---
 st.set_page_config(page_title="Procesador de Pedidos", page_icon="📦")
-st.title("📦 Procesador de Pedidos Marketplace")
+st.title("📦 Unidad Nueva")
 st.write("Sube tu archivo Excel y el sistema detectará automáticamente los países (incluyendo nombres como 'Germany' o 'Poland').")
 
 archivo_subido = st.file_uploader("Elige un archivo Excel", type=["xlsx", "xls"])
